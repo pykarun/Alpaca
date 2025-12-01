@@ -180,6 +180,8 @@ def get_alpaca_account_cash() -> float:
     resp.raise_for_status()
     j = resp.json()
     cash = j.get('cash')
+    if cash is None:
+        raise RuntimeError('Cash value not found in Alpaca account response')
     try:
         return float(cash)
     except Exception:
@@ -527,7 +529,7 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
 
     # Execute orders if signal indicates and we are in live mode (and not dry-run)
     if signal == 'BUY':
-        # Use notional (dollar-based) orders to avoid "insufficient buying power" errors
+        # Use notional (dollar-based) orders to avoid "insufficient funds" errors
         # Alpaca will handle the exact share calculation including fractional shares
         budget = capital_local  # invest all available cash
         estimated_shares = budget / tqqq_price if tqqq_price > 0 else 0
