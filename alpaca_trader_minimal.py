@@ -500,17 +500,17 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
 
         # Position info now included in Account Info section below
 
-    # If running live, attempt to read account cash and override provided capital
+    # If running live, attempt to read account buying power and override provided capital
     capital_local = capital
     if live:
         try:
             capital_local = float(get_alpaca_account_cash())
-            account_info = f'Cash: ${capital_local:.2f}'
+            account_info = f'Buying Power: ${capital_local:.2f}'
             if position_shares > 0:
                 account_info += f' | Position: {position_shares:.2f} shares @ ${entry_price:.2f}, Peak: ${cur_peak:.2f}, Current: ${tqqq_price:.2f}, Stop: ${cur_stop:.2f}, Drawdown: {drawdown_pct:.2f}%'
             logger.info('=== Account Info ===\n%s', account_info)
         except Exception as e:
-            logger.warning('Could not read Alpaca account cash, using provided capital %.2f: %s', capital_local, e)
+            logger.warning('Could not read Alpaca account buying power, using provided capital %.2f: %s', capital_local, e)
 
     # Execute orders if signal indicates and we are in live mode (and not dry-run)
     if signal == 'BUY':
