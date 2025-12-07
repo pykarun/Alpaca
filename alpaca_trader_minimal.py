@@ -40,7 +40,7 @@ SYMBOL_TQQQ = 'TQQQ'
 
 # Strategy defaults (easy to edit)
 EMA_FAST = 9
-EMA_SLOW = 21
+EMA_SLOW = 30
 STOP_LOSS_PCT = 15.0  # trailing stop as percent of peak price
 
 # Simulation / runtime defaults
