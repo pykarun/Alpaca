@@ -68,7 +68,7 @@ The following parameters can be adjusted in `alpaca_trader_minimal.py`:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `EMA_FAST` | 9 | Fast EMA period |
-| `EMA_SLOW` | 21 | Slow EMA period |
+| `EMA_SLOW` | 30 | Slow EMA period |
 | `STOP_LOSS_PCT` | 15.0 | Trailing stop-loss percentage |
 | `INITIAL_CAPITAL` | 10000.0 | Initial simulation capital |
 | `ALLOCATION_FRACTION` | 1.0 | Fraction of cash to allocate on buy |
