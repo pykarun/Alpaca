@@ -47,9 +47,11 @@ STOP_LOSS_PCT = 15.0  # trailing stop as percent of peak price
 INITIAL_CAPITAL = 10000.0
 ALLOCATION_FRACTION = 1.0  # fraction of cash to allocate on buy
 
-# Data-fetch lookback windows (days)
-HISTORY_DAYS_QQQ = 365
+# Data-fetch lookback windows (days for daily, or bars for intraday)
+HISTORY_DAYS_QQQ = 365  # Used for daily data (not used in intraday mode)
 HISTORY_DAYS_TQQQ = 7
+INTRADAY_INTERVAL = '5m'  # 5-minute bars for intraday EMA calculation
+INTRADAY_LOOKBACK_DAYS = 5  # Fetch last 5 days of intraday data
 
 # Loop defaults
 DEFAULT_LOOP_INTERVAL = 60
@@ -242,6 +244,26 @@ def fetch_history(symbol: str, days: int = 365) -> pd.DataFrame:
     return df
 
 
+def fetch_intraday_history(symbol: str, interval: str = '5m', days: int = 5) -> pd.DataFrame:
+    """Fetch intraday historical OHLCV for a symbol using yfinance.
+    
+    Args:
+        symbol: Stock symbol to fetch
+        interval: Bar interval (1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo)
+        days: Number of days to look back (max 60 days for intervals < 1 hour)
+    
+    Returns:
+        DataFrame with OHLCV data at specified interval
+    """
+    # yfinance limits: 1m/2m/5m/15m/30m limited to last 60 days
+    end = datetime.datetime.now()
+    start = end - datetime.timedelta(days=days)
+    df = yf.download(symbol, start=start, end=end, interval=interval, progress=False, auto_adjust=False)
+    if df.empty:
+        raise RuntimeError(f'Failed to download intraday data for {symbol}')
+    return df
+
+
 def compute_double_ema(df: pd.DataFrame, fast: int, slow: int) -> pd.DataFrame:
     # Simple EMA computation: expect a 'Close' column and compute two EMAs.
     df = df.copy()
@@ -332,45 +354,30 @@ def compute_trailing_stop(peak_price: Optional[float], current_price: float, pct
 
 
 def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live: bool = False, dry_run: bool = True, interval: int = 60):
-    # Fetch history for indicators (QQQ) and use Alpaca/yfinance for current prices
-    # Fetch raw history (keep a clean copy without EMA columns)
-    hist = fetch_history(SYMBOL_QQQ, days=HISTORY_DAYS_QQQ)
+    # Fetch intraday history for indicators (QQQ) - use 5-minute bars for responsive EMAs
+    # This makes EMAs update throughout the trading day instead of only at daily close
+    hist = fetch_intraday_history(SYMBOL_QQQ, interval=INTRADAY_INTERVAL, days=INTRADAY_LOOKBACK_DAYS)
     start_ts = datetime.datetime.now().isoformat()
 
     # Use the EMA spans provided by the caller/config without modification.
     fast_span = int(ema_fast)
     slow_span = int(ema_slow)
 
-    # Compute EMAs from the raw history DataFrame (qqq is the annotated DF)
+    # Compute EMAs from the intraday history DataFrame (qqq is the annotated DF)
     qqq = compute_double_ema(hist, fast_span, slow_span)
 
     # Log which spans are used and the configured stop-loss percentage (compact)
     logger.debug('QQQ tail after EMA compute:\n%s', qqq[['Close', 'EMA_Fast', 'EMA_Slow']].tail())
 
     # Determine current market prices; prefer Alpaca live trade when in live mode
+    # With intraday data, the latest bar should be very recent, but we still
+    # fetch the current live price to append for the most up-to-date EMA calculation
     try:
         if live:
             tqqq_price = get_latest_trade_from_alpaca(SYMBOL_TQQQ)
             qqq_live_price = get_latest_trade_from_alpaca(SYMBOL_QQQ)
-            # Inject live price into qqq for a realtime EMA comparison.
-            # Instead of overwriting the last historical row (which can
-            # create NaNs if the last row is incomplete), append a new
-            # one-row DataFrame with the live price as the most-recent
-            # point and then recompute EMAs.
-            try:
-                last_index = qqq.index[-1]
-            except Exception:
-                last_index = None
-
-            new_idx = pd.Timestamp.now()
-            # Preserve the original row structure: copy the last row and set
-            # its Close to the live price so column/index layout remains
-            # consistent (avoids MultiIndex/column-mismatch issues).
-            # Safer approach: operate on a single 'Close' Series to avoid
-            # column/index shape mismatches (MultiIndex vs single-level).
-            # Extract the Close series from hist (or first numeric column),
-            # append the live price, compute EMAs on that Series, and then
-            # attach the EMA columns back onto a copy of the original history.
+            # Append live price as the most recent data point and recalculate EMAs
+            # This ensures the EMAs reflect the absolute latest market conditions
             try:
                 if 'Close' in hist.columns:
                     close_ser = hist['Close'].astype(float).copy()
@@ -381,9 +388,10 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
                     close_ser = num.iloc[:, 0].astype(float).copy()
 
                 # Append live price as a new timestamped row
+                new_idx = pd.Timestamp.now()
                 close_ser = pd.concat([close_ser, pd.Series([qqq_live_price], index=[new_idx])])
 
-                # Compute EMAs on the Close series
+                # Compute EMAs on the Close series with live price
                 ema_fast_ser = close_ser.ewm(span=fast_span, adjust=False).mean()
                 ema_slow_ser = close_ser.ewm(span=slow_span, adjust=False).mean()
 
@@ -400,9 +408,9 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
                 qqq['EMA_Fast'] = ema_fast_ser.reindex(qqq.index)
                 qqq['EMA_Slow'] = ema_slow_ser.reindex(qqq.index)
             except Exception:
-                # If anything goes wrong, fallback to original (less safe) method
+                # If anything goes wrong, fallback to original method
                 last_row = hist.iloc[-1].copy()
-                last_row.name = new_idx
+                last_row.name = pd.Timestamp.now()
                 last_row['Close'] = qqq_live_price
                 hist2 = pd.concat([hist, last_row.to_frame().T])
                 qqq = compute_double_ema(hist2, fast_span, slow_span)
@@ -410,12 +418,8 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
             # If EMAs ended up NaN, log the tail for debugging
             if pd.isna(qqq['EMA_Fast'].iat[-1]) or pd.isna(qqq['EMA_Slow'].iat[-1]):
                 logger.debug('QQQ tail after live injection:\n%s', qqq.tail())
-            # If the fast and slow EMAs are identical (possible when spans are
-            # misconfigured or when there's insufficient history), log a short
-            # diagnostic to help the user understand why.
-            # No assumption: keep spans and values as computed. If you want
-            # to inspect the tail for diagnosis, enable DEBUG logging.
         else:
+            # Not in live mode, just use the latest intraday bar
             tqqq_price = latest_price(fetch_history(SYMBOL_TQQQ, days=HISTORY_DAYS_TQQQ))
     except Exception as e:
         logger.warning('Could not fetch Alpaca live prices, falling back to yfinance: %s', e)
@@ -466,7 +470,7 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
     dev_display = f"{deviation:+.2f}%"
 
     # Human-readable logs in sections
-    logger.info('=== Settings Used ===\nEMA Fast: %d, EMA Slow: %d, Stop Loss: %.2f%%, Mode: %s, Loop: enabled, Interval: %d', fast_span, slow_span, stop_pct, 'live' if live else 'paper', interval)
+    logger.info('=== Settings Used ===\nEMA Fast: %d, EMA Slow: %d, Stop Loss: %.2f%%, Mode: %s, Interval: %s bars, Loop: enabled, Check Interval: %d sec', fast_span, slow_span, stop_pct, 'live' if live else 'paper', INTRADAY_INTERVAL, interval)
 
     # Log QQQ data for debugging EMA calculations
     logger.info('=== QQQ Data (Last 5 Rows) ===\n%s', qqq[['Close', 'EMA_Fast', 'EMA_Slow']].tail())
