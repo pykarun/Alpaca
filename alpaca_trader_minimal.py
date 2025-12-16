@@ -259,9 +259,10 @@ def is_market_open() -> bool:
             return False
         
         # Basic holiday check for major US market holidays
-        # Note: This is a simple check and doesn't cover all market holidays or
-        # observed holidays when they fall on weekends. For production use,
-        # consider using a comprehensive holiday library like `pandas.tseries.holiday`
+        # WARNING: This is a BASIC check that only covers 3 major holidays and does NOT:
+        # - Handle observed holidays when they fall on weekends
+        # - Include all market holidays (MLK Day, Presidents Day, Good Friday, Memorial Day, Labor Day, Thanksgiving, etc.)
+        # For production use, consider using pandas.tseries.holiday.USFederalHolidayCalendar
         month = now_et.month
         day = now_et.day
         
@@ -279,10 +280,10 @@ def is_market_open() -> bool:
         
         return True
     except Exception as e:
-        # If timezone check fails, log warning and return True to allow trading
-        # This prevents the bot from being completely disabled by timezone issues
-        logger.warning('Market hours check failed: %s. Allowing trading.', e)
-        return True
+        # If timezone check fails, return False to prevent unintended trading
+        # This is a safer default than allowing trading when we can't verify hours
+        logger.warning('Market hours check failed: %s. Defaulting to market closed for safety.', e)
+        return False
 
 
 def fetch_history(symbol: str, days: int = 365) -> pd.DataFrame:
