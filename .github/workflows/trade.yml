@@ -2,12 +2,9 @@ name: Run Alpaca Trader
 
 on:
   schedule:
-    # Run every 30 minutes during US market hours (9:30 AM - 4:00 PM ET)
-    # ET converts to 13:30-20:00 UTC (EDT) or 14:30-21:00 UTC (EST)
-    # To cover both DST periods, run from 13:00-21:30 UTC, Mon-Fri
-    # The Python script will do an additional check to ensure market is actually open
-    - cron: '*/30 13-21 * * 1-5'  # Every 30 minutes from 13:00-21:30 UTC, Mon-Fri
-  workflow_dispatch:  # Allow manual trigger
+    # Run once at 3:55 PM EST (20:55 UTC), Monday–Friday
+    - cron: '55 20 * * 1-5'
+  workflow_dispatch:
 
 jobs:
   trade:
