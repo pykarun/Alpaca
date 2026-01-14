@@ -2,8 +2,8 @@ name: Run Alpaca Trader
 
 on:
   schedule:
-    # Run once at 3:55 PM EST (20:55 UTC), Monday–Friday
-    - cron: '55 20 * * 1-5'
+    # Run once at 3:50 PM EST (20:50 UTC), Monday–Friday
+    - cron: '50 20 * * 1-5'
   workflow_dispatch:
 
 jobs:
